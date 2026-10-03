@@ -1,7 +1,7 @@
 :root {
   color: #1c1917;
   background: #f6f3ee;
-  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+  font-family: Palatino, "Iowan Old Style", Georgia, serif;
 }
 
 body {
@@ -9,8 +9,8 @@ body {
 }
 
 .shell {
-  max-width: 40rem;
-  margin: 4rem auto;
+  max-width: 28rem;
+  margin: 4.5rem auto;
   padding: 0 1.5rem;
 }
 
@@ -24,19 +24,229 @@ body {
 }
 
 h1 {
-  margin: 0.4rem 0 0.75rem;
-  font-size: 2.4rem;
+  margin: 0.35rem 0 0.6rem;
+  font-size: 2.25rem;
   font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.lede,
+.quiet {
+  margin: 0;
+  line-height: 1.45;
 }
 
 .lede {
-  margin: 0;
   font-size: 1.15rem;
+}
+
+.quiet {
+  margin-top: 0.35rem;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  color: #57534e;
+}
+
+form {
+  display: grid;
+  gap: 0.95rem;
+  margin-top: 1.75rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.85rem;
+}
+
+input {
+  font: 1rem Palatino, Georgia, serif;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #d6d3d1;
+  border-radius: 2px;
+  background: #fff;
+  color: inherit;
+}
+
+button {
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-radius: 2px;
+  background: #1c1917;
+  color: #fafaf9;
+  cursor: pointer;
+  justify-self: start;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.form-error {
+  margin: 0;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  color: #9f1239;
+}
+
+.status {
+  margin: 4.5rem 1.5rem;
+  font-family: "Segoe UI", sans-serif;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.5rem;
+  border-bottom: 1px solid #e7e5e4;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+}
+
+.top button {
+  background: transparent;
+  color: #1c1917;
+  border: 1px solid #d6d3d1;
+}
+
+.shell .form-error {
+  margin-top: 1rem;
+}
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(16rem, 24rem) 1fr;
+  background: #f4f4f5;
+  color: #18181b;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+}
+
+.login-aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2rem;
+  background: #18181b;
+  color: #fafafa;
+}
+
+.login-aside .login-mark {
+  margin: 0;
+  color: #fafafa;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.login-aside h1 {
+  margin: 0 0 0.6rem;
+  max-width: 12ch;
+  font-size: 2.4rem;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.login-aside p {
+  margin: 0;
+  color: #a1a1aa;
   line-height: 1.5;
 }
 
-.health {
-  margin-top: 1.5rem;
-  font-family: "Segoe UI", sans-serif;
-  font-size: 0.95rem;
+.login-panel {
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.5rem;
+}
+
+.login-card {
+  width: min(100%, 22.5rem);
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 1.75rem;
+  border: 1px solid #e4e4e7;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(24, 24, 27, 0.06);
+}
+
+.login-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.login label {
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #3f3f46;
+}
+
+.login input {
+  font: 1rem ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  padding: 0.72rem 0.8rem;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #fafafa;
+}
+
+.login input:focus {
+  outline: 2px solid #18181b;
+  outline-offset: 1px;
+  border-color: #18181b;
+  background: #fff;
+}
+
+.login button {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  background: #18181b;
+  font-weight: 600;
+  justify-self: stretch;
+}
+
+.login .form-error {
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: #fff1f2;
+  font-size: 0.9rem;
+}
+
+.login-status {
+  grid-column: 1 / -1;
+  align-self: center;
+  justify-self: center;
+  margin: 0;
+  color: #71717a;
+}
+
+@media (max-width: 760px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+
+  .login-aside {
+    gap: 1.5rem;
+    padding: 1.5rem 1.25rem 1.25rem;
+  }
+
+  .login-aside h1 {
+    font-size: 1.85rem;
+  }
+
+  .login-panel {
+    align-items: start;
+    padding: 1.25rem;
+  }
 }
