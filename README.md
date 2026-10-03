@@ -14,7 +14,7 @@ The browser talks only to the API over HTTP. In Docker, nginx on the web service
 
 `GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (null when there is no session). The log does not include query strings, headers, cookies, or bodies.
 
-The relational schema is applied by Alembic, then demo users are seeded. Login, request create/list/detail, and status transitions are implemented. Episode import, assignment endpoints, and analytics are not. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
+The relational schema is applied by Alembic, then demo users are seeded. Login, requests, episode import, and episode search are implemented. Assignment endpoints and analytics are not. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
 
 ## Ports and environment
 
@@ -118,3 +118,15 @@ These are the task's local fixtures, not production secrets.
 Staff (`operator` or `admin`) may move `submitted` to `in_progress`, `rejected` to `in_progress`, and `in_progress` to `delivered`. The owning client may move `delivered` to `accepted` or `rejected`. `delivered` also returns 409 `Not enough episodes assigned` until `assignments` has at least `episodes_requested` rows. Creating a request and each successful transition write the new status and one history row (actor and timestamp) in the same transaction.
 
 `task_name` is 1–200 characters, `episodes_requested` is 1–100000, `deadline` is from today (UTC) through five years ahead, and `notes` are optional up to 2000 characters. Writes need the CSRF header.
+
+## Episodes
+
+`POST /api/v1/episodes/import` takes a CSV file upload. Operators and admins can call it. Clients cannot, and they cannot list episodes either.
+
+The header must be `episode_id,robot_id,task_name,recorded_at,duration_seconds,operator_name,quality`. A bad header, a file that is not UTF-8, or a file over 32MB is a 400 and writes nothing. Row problems do not reject the rest of the file. A blank line is ignored.
+
+Import normalizes a row before it stores it: episode ids are uppercased, robots and quality are lowercased, task names are trimmed and lowercased, and timestamps without a zone are UTC. `14/08/2026 09:15` is day-first. Quality must be `good`, `usable`, or `bad`. Duration must be a positive integer. Robots must be one of `arm-01`, `arm-02`, `arm-03`, `mobile-01`, `humanoid-01`, so `arm-99` is reported and not stored.
+
+The same episode id is inserted once, using the unique `source_episode_id` constraint. A later row with the same normalized fields is skipped. A later row with different fields is a conflict: the stored row stays as it was, and the response names the row. Nothing is updated in place. The JSON report has `created`, `skipped`, `conflicts`, `invalid`, and `errors` (row number, episode id, reason). `errors` includes the first 100 invalid or conflicting rows.
+
+`GET /api/v1/episodes` filters by `task_name` and `quality`, using the same task-name normalization. Results are ordered by `source_episode_id`. `limit` defaults to 50 and maxes at 100, with `offset`. The body is `items`, `total`, `limit`, and `offset`.
