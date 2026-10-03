@@ -9,7 +9,7 @@ State that must survive a restart will live in PostgreSQL: users, episodes, requ
 Hard decisions so far:
 
 1. **Same-origin HTTP, with an HttpOnly session cookie planned.** The brief allows either a cookie or a bearer token. A cookie set by the API and stored by the browser avoids putting a token in `localStorage`. State-changing requests will later send a CSRF header. `Secure` will be set when the app is served over HTTPS. Bearer tokens were the alternative; they are easier to test with `curl`, but a copied token in a browser store is the failure mode I want to avoid for an internal app that handles client deliveries.
-2. **`/health` does not check the database.** It only reports that the process can answer. Compose already waits on Postgres before starting the API. A database check belongs on a later readiness probe so a migration failure does not look like a dead process.
+2. **`/health` does not check the database.** It only reports that the process can answer. The API loads `DATABASE_URL` into configuration and does not open a connection. A database check belongs on a later readiness probe so a migration failure does not look like a dead process.
 3. **Versioned routes under `/api/v1`, health at the root.** The UI contract stays stable if internal routes change.
 
 Import rules, the exact request schema, and how duplicate CSV rows are resolved are not decided yet. They will be written down when those features land.

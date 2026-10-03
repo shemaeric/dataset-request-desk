@@ -12,7 +12,7 @@ The browser talks only to the API over HTTP. In Docker, nginx on the web service
 
 ## What works now
 
-`GET /health` returns `{"status": "ok"}`. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (`null` until authentication exists).
+`GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (`null` until authentication exists). The log does not include query strings, headers, cookies, or bodies. The API reads `DATABASE_URL` at startup and does not open a connection.
 
 Domain features (auth, requests, episodes, import, analytics) are not built yet. Compose starts PostgreSQL, but there are no migrations or seed users in the database yet. A healthy stack means Postgres accepts connections and `GET /health` answers. It does not mean the domain API is ready.
 
@@ -28,7 +28,7 @@ Names live in `.env.example`. Compose uses those values when `.env` exists, and 
 | `POSTGRES_USER` | `desk` | Postgres role |
 | `POSTGRES_PASSWORD` | `desk` | Local placeholder only |
 | `POSTGRES_DB` | `dataset_request_desk` | Database name |
-| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` | Reserved for the API container. Hostname `db` is the Compose service. The API does not connect yet. |
+| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` | Read at API startup. Hostname `db` is the Compose service. If unset, local uvicorn falls back to `127.0.0.1`. No connection is opened. |
 
 Local `npm run dev` serves the UI at http://127.0.0.1:5173 and proxies `/health` and `/api` to http://127.0.0.1:8000. That UI port is fixed in `frontend/vite.config.ts`.
 

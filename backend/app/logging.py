@@ -35,6 +35,7 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         finally:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             user_id = getattr(request.state, "user_id", None)
+            # Path only: query strings, headers, cookies, and bodies stay out of the log.
             access_logger.info(
                 json.dumps(
                     {
