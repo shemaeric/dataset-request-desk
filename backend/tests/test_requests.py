@@ -114,6 +114,9 @@ def test_client_creates_their_own_request(client: TestClient) -> None:
     owner_id = _user_id(client)
     created = _create(client, client_id=999, status="delivered")
     assert created["client_id"] == owner_id
+    assert created["client_name"] == "Acme Robotics"
+    assert created["assigned_episode_count"] == 0
+    assert created["assignments"] == []
     assert created["status"] == "submitted"
     assert created["status_history"][0]["from_status"] is None
     assert created["status_history"][0]["to_status"] == "submitted"

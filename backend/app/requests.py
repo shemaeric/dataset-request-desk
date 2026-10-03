@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.auth import get_current_user, get_db, require_roles
 from app.models import (
@@ -78,12 +78,12 @@ class HistoryOut(BaseModel):
 
 
 class RequestOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     client_id: int
+    client_name: str
     task_name: str
     episodes_requested: int
+    assigned_episode_count: int
     deadline: date
     notes: str | None
     status: str
@@ -91,8 +91,72 @@ class RequestOut(BaseModel):
     updated_at: datetime
 
 
+class AssignedEpisodeOut(BaseModel):
+    episode_id: int
+    source_episode_id: str
+    task_name: str
+    quality: str
+
+
 class RequestDetailOut(RequestOut):
     status_history: list[HistoryOut]
+    assignments: list[AssignedEpisodeOut]
+
+
+def _counts(db: Session, request_ids: list[int]) -> dict[int, int]:
+    if not request_ids:
+        return {}
+    counted = db.execute(
+        select(Assignment.request_id, func.count())
+        .where(Assignment.request_id.in_(request_ids))
+        .group_by(Assignment.request_id)
+    )
+    return {int(request_id): int(total) for request_id, total in counted}
+
+
+def _summary(row: DatasetRequest, assigned: int) -> RequestOut:
+    return RequestOut(
+        id=row.id,
+        client_id=row.client_id,
+        client_name=row.client.name,
+        task_name=row.task_name,
+        episodes_requested=row.episodes_requested,
+        assigned_episode_count=assigned,
+        deadline=row.deadline,
+        notes=row.notes,
+        status=row.status,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _detail(db: Session, request_id: int) -> RequestDetailOut:
+    row = db.scalars(
+        select(DatasetRequest)
+        .where(DatasetRequest.id == request_id)
+        .options(
+            joinedload(DatasetRequest.client),
+            selectinload(DatasetRequest.status_history),
+            selectinload(DatasetRequest.assignments).selectinload(Assignment.episode),
+        )
+    ).unique().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    assigned = sorted(row.assignments, key=lambda item: item.episode.source_episode_id)
+    summary = _summary(row, len(assigned))
+    return RequestDetailOut(
+        **summary.model_dump(),
+        status_history=[HistoryOut.model_validate(item) for item in row.status_history],
+        assignments=[
+            AssignedEpisodeOut(
+                episode_id=item.episode_id,
+                source_episode_id=item.episode.source_episode_id,
+                task_name=item.episode.task_name,
+                quality=item.episode.quality,
+            )
+            for item in assigned
+        ],
+    )
 
 
 def assigned_episode_count(db: Session, request_id: int) -> int:
@@ -152,7 +216,7 @@ def create_request(
     body: RequestCreate,
     db: Session = Depends(get_db),
     user: User = Depends(client_only),
-) -> DatasetRequest:
+) -> RequestDetailOut:
     row = DatasetRequest(
         client_id=user.id,
         task_name=body.task_name,
@@ -172,19 +236,24 @@ def create_request(
         )
     )
     db.commit()
-    db.refresh(row)
-    return row
+    return _detail(db, row.id)
 
 
 @router.get("", response_model=list[RequestOut])
 def list_requests(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[DatasetRequest]:
-    stmt = select(DatasetRequest).order_by(DatasetRequest.id.desc())
+) -> list[RequestOut]:
+    stmt = (
+        select(DatasetRequest)
+        .options(joinedload(DatasetRequest.client))
+        .order_by(DatasetRequest.id.desc())
+    )
     if user.role == UserRole.CLIENT.value:
         stmt = stmt.where(DatasetRequest.client_id == user.id)
-    return list(db.scalars(stmt))
+    rows = list(db.scalars(stmt).unique())
+    counts = _counts(db, [row.id for row in rows])
+    return [_summary(row, counts.get(row.id, 0)) for row in rows]
 
 
 @router.get("/{request_id}", response_model=RequestDetailOut)
@@ -192,8 +261,9 @@ def get_request(
     request_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> DatasetRequest:
-    return load_request(db, request_id, user)
+) -> RequestDetailOut:
+    load_request(db, request_id, user)
+    return _detail(db, request_id)
 
 
 @router.post("/{request_id}/transitions", response_model=RequestDetailOut)
@@ -202,8 +272,7 @@ def transition_request(
     body: TransitionIn,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> DatasetRequest:
+) -> RequestDetailOut:
     row = load_request(db, request_id, user, lock=True)
-    apply_transition(db, row, user, body.status)
-    db.refresh(row)
-    return row
+    apply_transition(db, row, user, body.status.value)
+    return _detail(db, request_id)

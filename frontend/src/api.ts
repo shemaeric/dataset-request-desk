@@ -1,4 +1,12 @@
-import { ApiError, type User } from "./types";
+import {
+  ApiError,
+  type DeskRequest,
+  type EpisodePage,
+  type EpisodeQuality,
+  type RequestDetail,
+  type RequestStatus,
+  type User,
+} from "./types";
 
 const CSRF_COOKIE = "desk_csrf";
 const CSRF_HEADER = "X-CSRF-Token";
@@ -85,4 +93,60 @@ export function logout(): Promise<void> {
 
 export function currentUser(): Promise<User> {
   return request<User>("/api/v1/auth/me");
+}
+
+export function failureMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return "Could not reach the API";
+}
+
+export function listRequests(): Promise<DeskRequest[]> {
+  return request<DeskRequest[]>("/api/v1/requests");
+}
+
+export function getRequest(requestId: number): Promise<RequestDetail> {
+  return request<RequestDetail>(`/api/v1/requests/${requestId}`);
+}
+
+export function transitionRequest(
+  requestId: number,
+  status: RequestStatus,
+): Promise<RequestDetail> {
+  return request<RequestDetail>(`/api/v1/requests/${requestId}/transitions`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function listEpisodes(query: {
+  taskName: string;
+  quality: EpisodeQuality | "";
+  limit: number;
+  offset: number;
+}): Promise<EpisodePage> {
+  const params = new URLSearchParams();
+  if (query.taskName.trim()) {
+    params.set("task_name", query.taskName.trim());
+  }
+  if (query.quality) {
+    params.set("quality", query.quality);
+  }
+  params.set("limit", String(query.limit));
+  params.set("offset", String(query.offset));
+  return request<EpisodePage>(`/api/v1/episodes?${params}`);
+}
+
+export function assignEpisode(requestId: number, episodeId: number): Promise<void> {
+  return request<void>(`/api/v1/requests/${requestId}/assignments`, {
+    method: "POST",
+    body: JSON.stringify({ episode_id: episodeId }),
+  });
+}
+
+export function removeEpisode(requestId: number, episodeId: number): Promise<void> {
+  return request<void>(`/api/v1/requests/${requestId}/assignments/${episodeId}`, {
+    method: "DELETE",
+  });
 }
