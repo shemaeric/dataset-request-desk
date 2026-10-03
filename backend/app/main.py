@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.analytics import router as analytics_router
 from app.assignments import router as assignment_router
 from app.auth import router as auth_router
 from app.config import Settings, load_settings
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(request_router, prefix="/api/v1")
     app.include_router(assignment_router, prefix="/api/v1")
     app.include_router(episode_router, prefix="/api/v1")
+    app.include_router(analytics_router, prefix="/api/v1")
 
     @app.get("/health")
     def health() -> dict[str, str]:
