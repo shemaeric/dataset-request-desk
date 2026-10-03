@@ -14,7 +14,7 @@ The browser talks only to the API over HTTP. In Docker, nginx on the web service
 
 `GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (`null` until authentication exists). The log does not include query strings, headers, cookies, or bodies. The API reads `DATABASE_URL` at startup and does not open a connection.
 
-The relational schema is applied by Alembic. Domain endpoints (auth, requests, episodes, import, analytics) are not built yet, and seed users are not loaded yet. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
+The relational schema is applied by Alembic, then demo users are seeded. Request, episode, import, and analytics endpoints are not built yet. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
 
 ## Ports and environment
 
@@ -28,7 +28,9 @@ Names live in `.env.example`. Compose uses those values when `.env` exists, and 
 | `POSTGRES_USER` | `desk` | Postgres role |
 | `POSTGRES_PASSWORD` | `desk` | Local placeholder only |
 | `POSTGRES_DB` | `dataset_request_desk` | Database name |
-| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` | Read at API startup. Hostname `db` is the Compose service. If unset, local uvicorn falls back to `127.0.0.1`. No connection is opened. |
+| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` | API database URL. Hostname `db` is the Compose service. If unset, local uvicorn falls back to `127.0.0.1`. |
+| `COOKIE_SECURE` | `false` | Set `true` behind HTTPS so session cookies are `Secure`. |
+| `SESSION_TTL_SECONDS` | `43200` | Session lifetime. |
 
 Local `npm run dev` serves the UI at http://127.0.0.1:5173 and proxies `/health` and `/api` to http://127.0.0.1:8000. That UI port is fixed in `frontend/vite.config.ts`.
 
@@ -85,9 +87,17 @@ cd frontend
 npm run build
 ```
 
-## Seed accounts
+## Auth
 
-Login is not implemented yet. The accounts to create later are in `seed/users.json`:
+`POST /api/v1/auth/login` sets two cookies: `desk_session` (HttpOnly) and `desk_csrf` (readable by the page). Send the CSRF value back as `X-CSRF-Token` on later `POST`, `PUT`, `PATCH`, and `DELETE` requests. Login itself does not require that header. `GET /api/v1/auth/me` returns the session user. `POST /api/v1/auth/logout` clears the session.
+
+Local seed, from `backend/` after migrations:
+
+```bash
+python -m app.seed
+```
+
+Compose does this after `alembic upgrade head`. The command reads `seed/users.json` and skips emails that already exist. Only the password hash is stored.
 
 | Email | Password | Role |
 |---|---|---|
@@ -97,4 +107,4 @@ Login is not implemented yet. The accounts to create later are in `seed/users.js
 | client-a@example.com | client123 | client |
 | client-b@example.com | client123 | client |
 
-Passwords in that file are the task's local fixtures. The database must store only password hashes.
+These are the task's local fixtures, not production secrets.

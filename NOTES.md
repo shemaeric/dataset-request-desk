@@ -22,7 +22,7 @@ How duplicate CSV rows, blank fields, and `arm-99` are skipped is still an impor
 
 ## Left out
 
-Auth, request endpoints, episode import, analytics, and the operator UI are not built. The schema and `/health` are.
+Request endpoints, episode import, analytics, and the operator UI are not built. Auth and the schema are.
 
 With two more days after the required features, I would add the optional background export job only if the required acceptance checks were already green.
 
@@ -32,9 +32,9 @@ Nothing has failed in this step yet.
 
 ## Security
 
-Not implemented yet. The intended controls are hashed passwords (never the plaintext from `seed/users.json`), server-side role checks on every protected route, HttpOnly and SameSite cookies, CSRF protection on writes, and validation at the API boundary plus database constraints.
+Passwords are Argon2 hashes. Login failures use one message for an unknown email, a bad password, and an inactive user. The session cookie is HttpOnly and SameSite=Lax; the database stores only a hash of the token. A non-HttpOnly CSRF cookie must be echoed in `X-CSRF-Token` on later writes. `Secure` is off for local HTTP and on when `COOKIE_SECURE=true`. The role comes from the session user row, not from the login body.
 
-The two risks I expect to matter most once the domain exists: a client reading or accepting another client's request (broken object-level authorization), and a replayed or forged status change (missing CSRF or a transition checked only in the UI).
+The two risks I still worry about: a client reading or accepting another client's request, and a status change that skips the CSRF check or the allowed transition.
 
 ## Scale
 

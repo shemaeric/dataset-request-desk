@@ -17,9 +17,12 @@ services:
 
   migrate:
     build: ./backend
-    command: ["alembic", "upgrade", "head"]
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed"]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://desk:desk@db:5432/dataset_request_desk}
+      SEED_USERS_PATH: /seed/users.json
+    volumes:
+      - ./seed/users.json:/seed/users.json:ro
     depends_on:
       db:
         condition: service_healthy

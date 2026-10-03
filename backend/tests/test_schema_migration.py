@@ -120,6 +120,7 @@ def _assert_schema(engine: Engine) -> None:
         "dataset_requests",
         "assignments",
         "request_status_history",
+        "sessions",
         "alembic_version",
     }
 

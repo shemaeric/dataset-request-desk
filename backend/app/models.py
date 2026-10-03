@@ -1,11 +1,3 @@
-"""Relational schema.
-
-The recording export identifies an episode with the CSV column ``episode_id``
-(values such as ``EP-00156``; the clean generator uses ``EP-{100000+i}``).
-That string is stored in ``episodes.source_episode_id``. ``episodes.id`` is only
-the surrogate key used by foreign keys.
-"""
-
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -226,3 +218,27 @@ class RequestStatusHistory(Base):
 
     request: Mapped[DatasetRequest] = relationship(back_populates="status_history")
     actor: Mapped[User] = relationship()
+
+
+class AuthSession(Base):
+    """Login session. The cookie holds the raw token; this row stores its hash."""
+
+    __tablename__ = "sessions"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_sessions_token_hash"),
+        Index("ix_sessions_user_id", "user_id"),
+        _nonblank("token_hash", "ck_sessions_token_hash_not_blank"),
+        _nonblank("csrf_token", "ck_sessions_csrf_token_not_blank"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    csrf_token: Mapped[str] = mapped_column(Text, nullable=False)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    user: Mapped[User] = relationship()

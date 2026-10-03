@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra="ignore")
 
     database_url: str = LOCAL_DATABASE_URL
+    cookie_secure: bool = False
+    session_ttl_seconds: int = 60 * 60 * 12
+    seed_users_path: str = ""
 
 
 def load_settings() -> Settings:
