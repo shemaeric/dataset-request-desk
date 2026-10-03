@@ -31,7 +31,7 @@ export function deskLead(role: Role): string {
 export function deskMessage(role: Role, items: DeskRequest[]): string {
   if (items.length === 0) {
     if (role === "client") {
-      return "You have no requests yet. They will show up here after one is submitted.";
+      return "You have no requests yet. Submit one to put it on the desk.";
     }
     if (role === "admin") {
       return "No client has submitted a request yet.";

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   assignEpisode,
@@ -12,7 +12,7 @@ import { useAuth } from "./auth";
 import { Frame } from "./Frame";
 import type { Episode, EpisodePage, EpisodeQuality, RequestDetail } from "./types";
 import { clientRequestMessage } from "./dashboard";
-import { formatDeadline, staffTransition, statusLabel } from "./workflow";
+import { formatDeadline, formatWhen, staffTransition, statusLabel } from "./workflow";
 
 const PAGE_SIZE = 20;
 
@@ -67,6 +67,7 @@ export function RequestPage() {
           setLoad({ status: "loading" });
           setReloadKey((value) => value + 1);
         }}
+        onUpdated={(request) => setLoad({ status: "ready", request })}
       />
     );
   }
@@ -179,8 +180,41 @@ export function RequestPage() {
   );
 }
 
-function ClientRequest({ load, onRetry }: { load: LoadState; onRetry: () => void }) {
+function ClientRequest({
+  load,
+  onRetry,
+  onUpdated,
+}: {
+  load: LoadState;
+  onRetry: () => void;
+  onUpdated: (request: RequestDetail) => void;
+}) {
   const request = load.status === "ready" ? load.request : null;
+  const [pending, setPending] = useState<"accepted" | "rejected" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const busy = useRef(false);
+
+  async function onDecide(status: "accepted" | "rejected") {
+    if (!request || busy.current) {
+      return;
+    }
+    busy.current = true;
+    setError(null);
+    setNotice(null);
+    setPending(status);
+    try {
+      const next = await transitionRequest(request.id, status);
+      onUpdated(next);
+      setNotice(status === "accepted" ? "Accepted." : "Sent back for rework.");
+    } catch (caught) {
+      setError(failureMessage(caught));
+    } finally {
+      busy.current = false;
+      setPending(null);
+    }
+  }
+
   return (
     <Frame>
       <Link className="back" to="/">
@@ -209,9 +243,51 @@ function ClientRequest({ load, onRetry }: { load: LoadState; onRetry: () => void
               {request.assigned_episode_count} / {request.episodes_requested} episodes
             </span>
             <span>Due {formatDeadline(request.deadline)}</span>
+            <span>Submitted {formatWhen(request.created_at)}</span>
+            <span>Updated {formatWhen(request.updated_at)}</span>
           </p>
           {request.notes ? <p className="notes">{request.notes}</p> : null}
+          {request.status === "delivered" ? (
+            <div className="decision">
+              <button type="button" disabled={pending !== null} onClick={() => void onDecide("accepted")}>
+                {pending === "accepted" ? "Accepting" : "Accept"}
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={pending !== null}
+                onClick={() => void onDecide("rejected")}
+              >
+                {pending === "rejected" ? "Rejecting" : "Reject"}
+              </button>
+            </div>
+          ) : null}
+          {notice ? (
+            <p className="form-success" role="status">
+              {notice}
+            </p>
+          ) : null}
+          {error ? (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </article>
+      ) : null}
+      {request && request.status_history.length > 0 ? (
+        <section className="panel client-episodes">
+          <h2>History</h2>
+          <ul className="episode-list">
+            {request.status_history.map((event, index) => (
+              <li className="episode-card" key={`${event.changed_at}-${index}`}>
+                <div>
+                  <strong>{statusLabel[event.to_status]}</strong>
+                  <span className="quiet">{formatWhen(event.changed_at)}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
       {request && request.assignments.length > 0 ? (
         <section className="panel client-episodes">

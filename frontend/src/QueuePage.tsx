@@ -4,8 +4,9 @@ import { failureMessage, listRequests } from "./api";
 import { useAuth } from "./auth";
 import { deskLead, deskMessage, deskStats, deskTitle } from "./dashboard";
 import { Frame } from "./Frame";
+import { RequestForm } from "./RequestForm";
 import type { DeskRequest, Role } from "./types";
-import { formatDeadline, statusLabel } from "./workflow";
+import { formatDeadline, formatWhen, statusLabel } from "./workflow";
 
 type LoadState =
   | { status: "loading" }
@@ -23,6 +24,8 @@ export function DeskHome() {
 function Dashboard({ role }: { role: Role }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [load, setLoad] = useState<LoadState>({ status: "loading" });
+  const [composing, setComposing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +46,19 @@ function Dashboard({ role }: { role: Role }) {
   }, [reloadKey]);
 
   const items = load.status === "ready" ? load.items : [];
+  const showForm = role === "client" && load.status === "ready" && (composing || items.length === 0);
+
+  function onCreated(row: DeskRequest) {
+    setNotice(`Submitted ${row.task_name}.`);
+    setComposing(false);
+    setLoad((current) => {
+      const existing = current.status === "ready" ? current.items : [];
+      return {
+        status: "ready",
+        items: [row, ...existing.filter((item) => item.id !== row.id)],
+      };
+    });
+  }
 
   return (
     <Frame>
@@ -78,6 +94,21 @@ function Dashboard({ role }: { role: Role }) {
           ))}
         </div>
       ) : null}
+      {notice ? (
+        <p className="form-success" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {showForm ? (
+        <RequestForm onCreated={onCreated} onCancel={items.length > 0 ? () => setComposing(false) : undefined} />
+      ) : null}
+      {role === "client" && load.status === "ready" && !showForm ? (
+        <div className="toolbar">
+          <button type="button" onClick={() => setComposing(true)}>
+            New request
+          </button>
+        </div>
+      ) : null}
       {load.status === "ready" && items.length > 0 ? (
         <div className="card-grid">
           {items.map((row) => (
@@ -105,6 +136,12 @@ function RequestCard({ row, role }: { row: DeskRequest; role: Role }) {
         </span>
         <span>Due {formatDeadline(row.deadline)}</span>
       </p>
+      {role === "client" ? (
+        <p className="facts">
+          <span>Submitted {formatWhen(row.created_at)}</span>
+          <span>Updated {formatWhen(row.updated_at)}</span>
+        </p>
+      ) : null}
       {short ? <p className="short">Needs more episodes</p> : null}
     </Link>
   );

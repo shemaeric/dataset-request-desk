@@ -38,8 +38,16 @@ export type AssignedEpisode = {
   quality: EpisodeQuality;
 };
 
+export type StatusChange = {
+  from_status: RequestStatus | null;
+  to_status: RequestStatus;
+  actor_user_id: number;
+  changed_at: string;
+};
+
 export type RequestDetail = DeskRequest & {
   assignments: AssignedEpisode[];
+  status_history: StatusChange[];
 };
 
 export type Episode = {
