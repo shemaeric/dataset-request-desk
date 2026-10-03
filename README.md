@@ -1,38 +1,16 @@
 # Dataset Request Desk
 
-Internal platform for requesting and fulfilling robot teleoperation datasets.
+Running at http://102.202.208.154:8081/
 
-This repository is a monorepo:
+Internal desk for robot teleoperation datasets. Clients ask for episodes, operators assign them, and the client accepts or rejects the delivery.
 
 - `backend/` — Python 3.12 FastAPI API
 - `frontend/` — React, TypeScript, and Vite
-- `seed/` — provided episode export and user accounts
+- `seed/` — episode export and demo accounts
 
-The browser talks only to the API over HTTP. In Docker, nginx on the web service proxies `/health` and `/api/` to the API so the UI and API share one origin. That keeps a later HttpOnly session cookie first-party. The frontend never connects to PostgreSQL.
+The browser talks only to the API. In Docker, nginx in the web container proxies `/health` and `/api/` to the API, so the session cookie stays on one origin. The frontend never opens Postgres.
 
-## What works now
-
-`GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (null when there is no session). The log does not include query strings, headers, cookies, or bodies.
-
-The relational schema is applied by Alembic, then demo users are seeded. Login, requests, episode import, and episode search are implemented. Assignment endpoints and analytics are not. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
-
-## Ports and environment
-
-Names live in `.env.example`. Compose uses those values when `.env` exists, and the same defaults otherwise.
-
-| Name | Default | Where it applies |
-|---|---|---|
-| `POSTGRES_PORT` | `5432` | Host port for Postgres |
-| `API_PORT` | `8000` | Host port for the API |
-| `WEB_PORT` | `8080` | Host port for the UI in Compose |
-| `POSTGRES_USER` | `desk` | Postgres role |
-| `POSTGRES_PASSWORD` | `desk` | Local placeholder only |
-| `POSTGRES_DB` | `dataset_request_desk` | Database name |
-| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` | API database URL. Hostname `db` is the Compose service. If unset, local uvicorn falls back to `127.0.0.1`. |
-| `COOKIE_SECURE` | `false` | Set `true` behind HTTPS so session cookies are `Secure`. |
-| `SESSION_TTL_SECONDS` | `43200` | Session lifetime. |
-
-Local `npm run dev` serves the UI at http://127.0.0.1:5173 and proxies `/health` and `/api` to http://127.0.0.1:8000. That UI port is fixed in `frontend/vite.config.ts`.
+`GET /health` returns `{"status": "ok"}`. That is process liveness only. Each request logs one JSON line: `method`, `path`, `status`, `duration_ms`, and `user_id` (null when there is no session). The line has no query string, headers, cookies, or body.
 
 ## Run with Docker
 
@@ -44,13 +22,23 @@ docker compose up --build
 
 - UI: http://localhost:8080
 - API: http://localhost:8000/health
-- Postgres: `localhost:5432`
+- Postgres: the `db` container, published on `localhost:5432`
 
-Copy `.env.example` to `.env` only if you need to override those local placeholders. Do not commit `.env`.
+Compose waits for Postgres, runs `alembic upgrade head`, then loads `seed/users.json`. Emails that already exist are skipped. The sample episodes are not loaded. An operator or admin imports them with `POST /api/v1/episodes/import` and the file `seed/episodes.csv`.
+
+Copy `.env.example` to `.env` only to override a default. Do not commit `.env`. If port 5432 or 8080 is already taken, set `POSTGRES_PORT` or `WEB_PORT`. Leave the port in `DATABASE_URL` at 5432: that is the port inside the Compose network, and the hostname stays `db`.
+
+| Name | Default |
+|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `desk` / `desk` / `dataset_request_desk` |
+| `POSTGRES_PORT` / `API_PORT` / `WEB_PORT` | `5432` / `8000` / `8080` |
+| `DATABASE_URL` | `postgresql+psycopg://desk:desk@db:5432/dataset_request_desk` |
+
+`POSTGRES_PASSWORD` is applied when the `pgdata` volume is first created. Changing it later does not rotate the password already stored in that volume.
 
 ## Run locally without Docker
 
-API:
+API, against a Postgres you already have:
 
 ```bash
 cd backend
@@ -58,12 +46,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 alembic upgrade head
+python -m app.seed
 uvicorn app.main:app --reload --no-access-log
 ```
 
-`alembic upgrade head` uses `DATABASE_URL`, or `127.0.0.1` when that variable is unset. Migration tests create and drop only `dataset_request_desk_migrate_test`. If Postgres is not on port 5432, set `MIGRATION_ADMIN_URL` to the maintenance database, for example `postgresql+psycopg://desk:desk@127.0.0.1:5432/postgres`.
+`alembic` and the API use `DATABASE_URL`. When that variable is unset, the API uses `127.0.0.1:5432`.
 
-UI (separate terminal; proxies `/health` and `/api` to `127.0.0.1:8000`):
+UI, in another terminal. It proxies `/health` and `/api` to `127.0.0.1:8000`:
 
 ```bash
 cd frontend
@@ -71,33 +60,36 @@ npm install
 npm run dev
 ```
 
-## Tests and checks
+Leave `VITE_API_BASE_URL` unset. The Vite port is `5173`.
+
+## Tests
+
+One command, from `backend/`. Each test creates and drops its own database. The name must end in `_migrate_test`. The suite refuses `dataset_request_desk`, so a run cannot wipe the app database.
 
 ```bash
-cd backend
-source .venv/bin/activate
-ruff check .
-ruff format --check .
-mypy app
-pytest
+cd backend && .venv/bin/pytest
 ```
+
+If Postgres is not on port 5432, point the suite at the maintenance database:
 
 ```bash
-cd frontend
-npm run build
+cd backend && MIGRATION_ADMIN_URL=postgresql+psycopg://desk:desk@127.0.0.1:5433/postgres .venv/bin/pytest
 ```
 
-## Auth
+The tests cover role checks and client isolation, legal and illegal status changes with history, assignment quality, conflicts, the unique episode constraint, the delivery threshold, CSV import idempotency and bad rows, login and inactive users, analytics date bounds and aggregates, and `/health`.
 
-`POST /api/v1/auth/login` sets two cookies: `desk_session` (HttpOnly) and `desk_csrf` (readable by the page). Send the CSRF value back as `X-CSRF-Token` on later `POST`, `PUT`, `PATCH`, and `DELETE` requests. Login itself does not require that header. `GET /api/v1/auth/me` returns the session user. `POST /api/v1/auth/logout` clears the session.
+GitHub Actions (`.github/workflows/test.yml`) runs that suite on push and pull request. The job starts Postgres 16 and sets `MIGRATION_ADMIN_URL` to that service. A second job runs `npm ci` and `npm run build` in `frontend/`.
 
-Local seed, from `backend/` after migrations:
+Two overlapping assignment requests are not launched together. The unique constraint is what stops the second insert. The frontend has no test runner. `npm run build` is the UI check.
+
+Style checks:
 
 ```bash
-python -m app.seed
+cd backend && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/mypy app
+cd frontend && npm run build
 ```
 
-Compose does this after `alembic upgrade head`. The command reads `seed/users.json` and skips emails that already exist. Only the password hash is stored.
+## Seed accounts
 
 | Email | Password | Role |
 |---|---|---|
@@ -107,34 +99,20 @@ Compose does this after `alembic upgrade head`. The command reads `seed/users.js
 | client-a@example.com | client123 | client |
 | client-b@example.com | client123 | client |
 
-These are the task's local fixtures, not production secrets.
+These are local fixtures. Passwords are stored as Argon2 hashes. Login sets `desk_session` (HttpOnly) and `desk_csrf`. Later `POST`, `PUT`, `PATCH`, and `DELETE` requests send that CSRF value as `X-CSRF-Token`.
 
-## Requests
+## Analytics
 
-`POST /api/v1/requests` is for clients. The owner is the logged-in user; a `client_id` or `status` in the body is ignored. `GET /api/v1/requests` returns that client's rows, or every row for an operator or admin.
+`GET /api/v1/analytics?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD` is staff-only. Both dates are required, UTC, and inclusive. The span can be at most 366 days, so one call cannot walk the whole history.
 
-`GET /api/v1/requests/{id}` and `POST /api/v1/requests/{id}/transitions` use one not-found response. A missing id and another client's id both return 404 `Request not found`, so a client cannot tell those cases apart. Operators and admins get that 404 only when the id does not exist. A request they are allowed to see, but with the wrong role for the step, returns 403. Any other status change returns 409 `Invalid status transition`.
+The figures are computed in Postgres: episodes per day and robot, request counts by current status for requests submitted in the window, the median seconds from submission to the first delivery (`percentile_cont`), and the top five task names among `good` episodes. An empty window returns empty lists, zero counts, and a null median.
 
-Staff (`operator` or `admin`) may move `submitted` to `in_progress`, `rejected` to `in_progress`, and `in_progress` to `delivered`. The owning client may move `delivered` to `accepted` or `rejected`. `delivered` also returns 409 `Not enough episodes assigned` until `assignments` has at least `episodes_requested` rows. Creating a request and each successful transition write the new status and one history row (actor and timestamp) in the same transaction.
+At 5 million episodes the shape of those queries stays the same. The day/robot aggregate can use `ix_episodes_recorded_at_robot_id`. The top-task query also filters `quality`, and that is the plan I would `EXPLAIN` before adding an index. The median is one pass over the requests submitted in the window, not over the episode table. What would not survive that volume is the importer: it writes one row at a time. I would batch that write. The API would still return aggregates.
 
-`task_name` is 1–200 characters, `episodes_requested` is 1–100000, `deadline` is from today (UTC) through five years ahead, and `notes` are optional up to 2000 characters. Writes need the CSRF header.
+## Deployment
 
-## Episodes
+The stretch item I picked is deployment.
 
-`POST /api/v1/episodes/import` takes a CSV file upload. Operators and admins can call it. Clients cannot, and they cannot list episodes either.
+A public copy is running at http://102.202.208.154:8081/. It is the same Compose stack: Postgres in the `db` container, schema and seed users applied by the `migrate` service, API and nginx UI beside it. Episode rows were imported after startup through `POST /api/v1/episodes/import`. Database files live in the `pgdata` volume. `docker compose down` keeps that volume. `docker compose down -v` deletes it.
 
-The header must be `episode_id,robot_id,task_name,recorded_at,duration_seconds,operator_name,quality`. A bad header, a file that is not UTF-8, or a file over 32MB is a 400 and writes nothing. Row problems do not reject the rest of the file. A blank line is ignored.
-
-Import normalizes a row before it stores it: episode ids are uppercased, robots and quality are lowercased, task names are trimmed and lowercased, and timestamps without a zone are UTC. `14/08/2026 09:15` is day-first. Quality must be `good`, `usable`, or `bad`. Duration must be a positive integer. Robots must be one of `arm-01`, `arm-02`, `arm-03`, `mobile-01`, `humanoid-01`, so `arm-99` is reported and not stored.
-
-The same episode id is inserted once, using the unique `source_episode_id` constraint. A later row with the same normalized fields is skipped. A later row with different fields is a conflict: the stored row stays as it was, and the response names the row. Nothing is updated in place. The JSON report has `created`, `skipped`, `conflicts`, `invalid`, and `errors` (row number, episode id, reason). `errors` includes the first 100 invalid or conflicting rows.
-
-`GET /api/v1/episodes` filters by `task_name` and `quality`, using the same task-name normalization. Results are ordered by `source_episode_id`. `limit` defaults to 50 and maxes at 100, with `offset`. The body is `items`, `total`, `limit`, and `offset`.
-
-## Assignments
-
-`POST /api/v1/requests/{id}/assignments` assigns one episode. The body is `{"episode_id": <numeric id>}`. `DELETE /api/v1/requests/{id}/assignments/{episode_id}` removes it. Operators and admins only.
-
-An episode can be assigned only when its quality is `good` or `usable`, and only while the request is `in_progress`. The assignment stays after `delivered`, `accepted`, or `rejected`. It is removed only by the delete call. The request row is locked, then the episode row, then the insert. `assignments.episode_id` is unique, so a second request cannot take the same episode. A repeat on the same request returns 409 `Episode is already assigned to this request`. A cross-request attempt returns 409 `Episode is already assigned to another request`.
-
-`in_progress` → `delivered` locks the request and counts current assignment rows in that transaction. Fewer than `episodes_requested` returns 409 `Not enough episodes assigned`.
+On that machine, ports 5432 and 8080 were already in use, so `.env` sets `POSTGRES_PORT=5433` and `WEB_PORT=8081`. `.env` is not in git. It is the place for `POSTGRES_PASSWORD` and the matching `DATABASE_URL`. There is no domain on this host, so there is no TLS certificate yet. The session cookie is therefore not marked `Secure`.

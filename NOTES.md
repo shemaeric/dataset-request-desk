@@ -2,46 +2,62 @@
 
 ## Design
 
-The app is a monorepo: a FastAPI service owns all business rules, PostgreSQL owns durable state, and the React UI is a client of `/health` and `/api/v1`. Nginx (in Compose) and the Vite dev proxy keep the browser on the same origin as the API.
+Postgres holds the durable state: users, sessions, episodes, requests, assignments, and status history. The API process is stateless apart from its connection pool. The React app is a client of `/health` and `/api/v1`. Nginx in Compose, and the Vite proxy in local dev, keep the browser on the same origin as the API.
 
-State that must survive a restart will live in PostgreSQL: users, episodes, requests, assignments, and status-history rows. The API process will stay stateless apart from the database connection.
+An episode's export id is `episodes.source_episode_id`, unique, and stored uppercased. `episodes.id` is the numeric key other tables use. A request lives in `dataset_requests` and belongs to one client. Each status change appends `request_status_history` with the actor and the time, in the same transaction as the status column. An assignment is one row per episode (`assignments.episode_id` is unique). A session row stores the SHA-256 of the cookie token, not the token.
 
-Hard decisions so far:
+Three choices took the longest.
 
-1. **Same-origin HTTP, with an HttpOnly session cookie planned.** The brief allows either a cookie or a bearer token. A cookie set by the API and stored by the browser avoids putting a token in `localStorage`. State-changing requests will later send a CSRF header. `Secure` will be set when the app is served over HTTPS. Bearer tokens were the alternative; they are easier to test with `curl`, but a copied token in a browser store is the failure mode I want to avoid for an internal app that handles client deliveries.
-2. **`/health` does not check the database.** It only reports that the process can answer. The API loads `DATABASE_URL` into configuration and does not open a connection. A database check belongs on a later readiness probe so a migration failure does not look like a dead process.
-3. **Versioned routes under `/api/v1`, health at the root.** The UI contract stays stable if internal routes change.
+I used an HttpOnly session cookie plus a CSRF header. A bearer token is easier to call with `curl`, and a copied token in `localStorage` is a bad fit for an internal app that accepts and rejects client deliveries. The CSRF cookie is readable by the page so the client can echo it. `SameSite=Lax` covers ordinary cross-site posts. Login is the one unsafe route that does not require the header.
 
-The CSV header is `episode_id,robot_id,task_name,recorded_at,duration_seconds,operator_name,quality`. The clean generator uses the same columns and ids shaped like `EP-100000`. I stored that export id in `episodes.source_episode_id` and used a separate numeric `episodes.id` for foreign keys. The unique constraint is case-sensitive text. Import uppercases the id first, so `ep-00003` is the same key as `EP-00003`.
+A client who asks for another client's request gets the same 404 as a missing id. A 403 would tell them the id exists. Staff still get 403 when they can see the request but do not own that workflow step.
 
-`recorded_at` is `timestamptz`. Almost every seed timestamp has no offset; one row ends in `Z`. Import, which is not written yet, will treat naive values as UTC. `duration_seconds` is an integer because the clean generator writes integers. Roles, quality, and request status are PostgreSQL `CHECK` constraints fed by Python enums, not native enum types, so a new value is an ordinary migration.
+An assignment stays after delivery, acceptance, and rejection. Removing it is a separate staff action, and only while the request is `in_progress`. The unique episode id is what stops two requests from taking the same episode, including two requests that arrive together. Import keeps the first valid row for an id. An identical repeat is skipped. A different repeat is reported and does not overwrite the stored row.
 
-An episode has at most one assignment row (`assignments.episode_id` is unique). That row stays until an operator removes it. Accepting or rejecting a request does not free the episode. Assign and remove are allowed only while the request is `in_progress`, and only for `good` or `usable` episodes. Those writes lock the request row, then the episode row. Delivery locks the request and counts assignment rows in that same transaction before it changes status. Requests live in `dataset_requests` so the table name is not the SQL-looking word `requests`. `deadline` is a date.
-
-Import keeps the first valid row for an episode id. An identical repeat is skipped. A repeat with different fields is reported as a conflict and does not overwrite the stored row. `arm-99` is rejected because it is not one of the known robots; that list lives in the importer, not in a schema constraint. Blank lines are ignored. Other missing or unparseable fields are row errors, and the valid rows around them are still saved. Naive timestamps are UTC, and `14/08/2026` is day-first because the day is 14.
-
-Request status changes go through one table: staff move `submitted` or `rejected` to `in_progress`, and `in_progress` to `delivered`; the owning client moves `delivered` to `accepted` or `rejected`. The status column and the history row commit together. `delivered` requires at least `episodes_requested` assignment rows. A client who asks for another client's id gets the same 404 as a missing id.
+`/health` does not query Postgres. A failed migration should not look like a dead process. Readiness is "Compose started the API only after migrate exited 0."
 
 ## Left out
 
-Analytics and the operator UI are not built. Auth, the schema, requests, episode import, and assignment are.
+CSV import and analytics are staff API routes. The UI does not upload a file, and it does not draw the analytics figures. Operators filter the episode list by task and quality and assign from that list. I skipped live updates and the background export job. Deployment was the stretch item.
 
-With two more days after the required features, I would add the optional background export job only if the required acceptance checks were already green.
+An operator or admin imports episodes with `POST /api/v1/episodes/import`. The body is multipart, field name `file`. Call it on the same origin as the UI (nginx proxies `/api/`), after login, and send the CSRF cookie back as `X-CSRF-Token`. From the repo directory, against the default Compose UI port:
+
+```bash
+curl -sS -c /tmp/desk.cookies -H 'Content-Type: application/json' \
+  -d '{"email":"ops1@example.com","password":"ops123"}' \
+  http://127.0.0.1:8080/api/v1/auth/login
+
+csrf=$(awk '$6=="desk_csrf" {print $7}' /tmp/desk.cookies)
+
+curl -sS -b /tmp/desk.cookies -H "X-CSRF-Token: $csrf" \
+  -F "file=@seed/episodes.csv" \
+  http://127.0.0.1:8080/api/v1/episodes/import
+```
+
+Use the published web port when it is not 8080. The public host is `8081`. The JSON body reports `created`, `skipped`, `conflicts`, and `invalid`. Running the same file again skips rows that are already stored.
+
+With two more days I would polish the UI, put a name and TLS in front of the public host, publish Postgres on `127.0.0.1` only, replace the fixture passwords, and batch the importer.
 
 ## What went wrong
 
-Nothing has failed in this step yet.
+The first `docker compose up -d --build` on the VPS built the images, then the `db` container died with `Bind for 0.0.0.0:5432 failed: port is already allocated`. The web container then failed the same way on 8080. `ss` showed both ports already taken by other processes on that machine. I left those processes up and set `POSTGRES_PORT=5433` and `WEB_PORT=8081` in `.env`. I did not change the port inside `DATABASE_URL`. That URL is used on the Compose network, where Postgres still listens on 5432 and the hostname is `db`. After that, `curl` to `/health` on the web port returned `{"status":"ok"}`.
 
 ## Security
 
-Passwords are Argon2 hashes. Login failures use one message for an unknown email, a bad password, and an inactive user. The session cookie is HttpOnly and SameSite=Lax; the database stores only a hash of the token. A non-HttpOnly CSRF cookie must be echoed in `X-CSRF-Token` on later writes. `Secure` is off for local HTTP and on when `COOKIE_SECURE=true`. The role comes from the session user row, not from the login body.
+Passwords are Argon2. An unknown email, a bad password, and an inactive user all get `Invalid email or password`. Deactivating a user sets `is_active` false, which login and an existing session both honor. The role comes from the user row, not from the login body. Request bodies are checked with Pydantic: task length, episode count, deadline window, note length, email shape. The CSV path rejects a non-UTF-8 file, a file over 32MB, and a bad header before any insert. Bad rows are reported and the valid rows around them are kept. A patch that would leave no active admin is rejected.
 
-A client who asks for another client's request gets the same 404 as a missing id, on detail and on transition. Status changes go through the transition table, and the status write is the same transaction as the history row. CSRF still covers those POSTs. Assignment is staff-only. A `bad` episode is rejected, and the unique episode constraint stops a second request from taking it. Delivery counts those rows while the request row is locked.
+The two issues I would worry about on a desk like this:
+
+The fixture passwords are real logins, and this copy is on a public IP. Postgres is also published on a host port. Docker punches past `ufw` for published ports, so closing the firewall in the OS is not enough. I would change the seed passwords, keep `.env` off the host's public interface, and bind the database to localhost.
+
+The CSRF token has to be readable by the page. A script injected into a task name or a note can then send the same writes the user can send. I treat that as the main XSS consequence, and I would rather escape those fields in the UI than move to a bearer token to "avoid CSRF."
 
 ## Scale
 
-Not exercised yet. Analytics will be SQL aggregations. The first likely limit at 100× episodes is an import or analytics query that scans `episodes` without an index on `recorded_at`, `robot_id`, and `quality`.
+At 10× users the first limit is one synchronous API process. Every request checks the session in Postgres, and a CSV import holds that worker until the file is done. I would size the pool before adding workers, and I would take import off the request path.
+
+At 100× episodes the importer, one row at a time, is the part I would change first. The day/robot aggregate can use `ix_episodes_recorded_at_robot_id`. The top-task query filters `recorded_at` and `quality` together, and that is the plan I would `EXPLAIN` before adding an index. The analytics window is capped at 366 days so one call cannot scan an open-ended range.
 
 ## AI tooling
 
-Cursor's agent (Grok 4.7) inspected the seed files and drafted this scaffold. I reviewed the layout, the health contract, and the log fields against the brief before committing.
+I used Claude Code occasionally, to look something up or to check a diff. I kept a suggestion only after I had tried it myself.
