@@ -1,0 +1,42 @@
+:root {
+  color: #1c1917;
+  background: #f6f3ee;
+  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+}
+
+body {
+  margin: 0;
+}
+
+.shell {
+  max-width: 40rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+
+.eyebrow {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.75rem;
+  color: #78716c;
+}
+
+h1 {
+  margin: 0.4rem 0 0.75rem;
+  font-size: 2.4rem;
+  font-weight: 600;
+}
+
+.lede {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.5;
+}
+
+.health {
+  margin-top: 1.5rem;
+  font-family: "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+}
