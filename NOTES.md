@@ -20,9 +20,11 @@ An episode has at most one assignment row (`assignments.episode_id` is unique). 
 
 How duplicate CSV rows, blank fields, and `arm-99` are skipped is still an import decision.
 
+Request status changes go through one table: staff move `submitted` or `rejected` to `in_progress`, and `in_progress` to `delivered`; the owning client moves `delivered` to `accepted` or `rejected`. The status column and the history row commit together. `delivered` counts rows already in `assignments` and does not yet decide which episodes may be assigned. A client who asks for another client's id gets the same 404 as a missing id.
+
 ## Left out
 
-Request endpoints, episode import, analytics, and the operator UI are not built. Auth and the schema are.
+Episode import, assignment endpoints, analytics, and the operator UI are not built. Auth, the schema, and the request workflow are.
 
 With two more days after the required features, I would add the optional background export job only if the required acceptance checks were already green.
 
@@ -34,7 +36,7 @@ Nothing has failed in this step yet.
 
 Passwords are Argon2 hashes. Login failures use one message for an unknown email, a bad password, and an inactive user. The session cookie is HttpOnly and SameSite=Lax; the database stores only a hash of the token. A non-HttpOnly CSRF cookie must be echoed in `X-CSRF-Token` on later writes. `Secure` is off for local HTTP and on when `COOKIE_SECURE=true`. The role comes from the session user row, not from the login body.
 
-The two risks I still worry about: a client reading or accepting another client's request, and a status change that skips the CSRF check or the allowed transition.
+A client who asks for another client's request gets the same 404 as a missing id, on detail and on transition. Status changes go through the transition table, and the status write is the same transaction as the history row. CSRF still covers those POSTs. The hole I would still watch is `delivered`: it counts assignment rows, but the quality and single-active-request rules are not on that path until assignment exists.
 
 ## Scale
 

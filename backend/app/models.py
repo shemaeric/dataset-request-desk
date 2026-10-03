@@ -154,7 +154,10 @@ class DatasetRequest(Base):
 
     client: Mapped[User] = relationship(back_populates="requests")
     assignments: Mapped[list[Assignment]] = relationship(back_populates="request")
-    status_history: Mapped[list[RequestStatusHistory]] = relationship(back_populates="request")
+    status_history: Mapped[list[RequestStatusHistory]] = relationship(
+        back_populates="request",
+        order_by="RequestStatusHistory.id",
+    )
 
 
 class Assignment(Base):

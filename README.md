@@ -12,9 +12,9 @@ The browser talks only to the API over HTTP. In Docker, nginx on the web service
 
 ## What works now
 
-`GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (`null` until authentication exists). The log does not include query strings, headers, cookies, or bodies. The API reads `DATABASE_URL` at startup and does not open a connection.
+`GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (null when there is no session). The log does not include query strings, headers, cookies, or bodies.
 
-The relational schema is applied by Alembic, then demo users are seeded. Request, episode, import, and analytics endpoints are not built yet. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
+The relational schema is applied by Alembic, then demo users are seeded. Login, request create/list/detail, and status transitions are implemented. Episode import, assignment endpoints, and analytics are not. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
 
 ## Ports and environment
 
@@ -108,3 +108,13 @@ Compose does this after `alembic upgrade head`. The command reads `seed/users.js
 | client-b@example.com | client123 | client |
 
 These are the task's local fixtures, not production secrets.
+
+## Requests
+
+`POST /api/v1/requests` is for clients. The owner is the logged-in user; a `client_id` or `status` in the body is ignored. `GET /api/v1/requests` returns that client's rows, or every row for an operator or admin.
+
+`GET /api/v1/requests/{id}` and `POST /api/v1/requests/{id}/transitions` use one not-found response. A missing id and another client's id both return 404 `Request not found`, so a client cannot tell those cases apart. Operators and admins get that 404 only when the id does not exist. A request they are allowed to see, but with the wrong role for the step, returns 403. Any other status change returns 409 `Invalid status transition`.
+
+Staff (`operator` or `admin`) may move `submitted` to `in_progress`, `rejected` to `in_progress`, and `in_progress` to `delivered`. The owning client may move `delivered` to `accepted` or `rejected`. `delivered` also returns 409 `Not enough episodes assigned` until `assignments` has at least `episodes_requested` rows. Creating a request and each successful transition write the new status and one history row (actor and timestamp) in the same transaction.
+
+`task_name` is 1–200 characters, `episodes_requested` is 1–100000, `deadline` is from today (UTC) through five years ahead, and `notes` are optional up to 2000 characters. Writes need the CSRF header.
