@@ -14,7 +14,7 @@ The browser talks only to the API over HTTP. In Docker, nginx on the web service
 
 `GET /health` returns `{"status": "ok"}`. That response is process liveness only: it does not check Postgres. Each request writes one JSON log line with `method`, `path`, `status`, `duration_ms`, and `user_id` (`null` until authentication exists). The log does not include query strings, headers, cookies, or bodies. The API reads `DATABASE_URL` at startup and does not open a connection.
 
-Domain features (auth, requests, episodes, import, analytics) are not built yet. Compose starts PostgreSQL, but there are no migrations or seed users in the database yet. A healthy stack means Postgres accepts connections and `GET /health` answers. It does not mean the domain API is ready.
+The relational schema is applied by Alembic. Domain endpoints (auth, requests, episodes, import, analytics) are not built yet, and seed users are not loaded yet. A healthy stack means Postgres accepts connections, migrations have run, and `GET /health` answers. `/health` still does not check the database.
 
 ## Ports and environment
 
@@ -55,8 +55,11 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+alembic upgrade head
 uvicorn app.main:app --reload --no-access-log
 ```
+
+`alembic upgrade head` uses `DATABASE_URL`, or `127.0.0.1` when that variable is unset. Migration tests create and drop only `dataset_request_desk_migrate_test`. If Postgres is not on port 5432, set `MIGRATION_ADMIN_URL` to the maintenance database, for example `postgresql+psycopg://desk:desk@127.0.0.1:5432/postgres`.
 
 UI (separate terminal; proxies `/health` and `/api` to `127.0.0.1:8000`):
 

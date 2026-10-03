@@ -12,13 +12,17 @@ Hard decisions so far:
 2. **`/health` does not check the database.** It only reports that the process can answer. The API loads `DATABASE_URL` into configuration and does not open a connection. A database check belongs on a later readiness probe so a migration failure does not look like a dead process.
 3. **Versioned routes under `/api/v1`, health at the root.** The UI contract stays stable if internal routes change.
 
-Import rules, the exact request schema, and how duplicate CSV rows are resolved are not decided yet. They will be written down when those features land.
+The CSV header is `episode_id,robot_id,task_name,recorded_at,duration_seconds,operator_name,quality`. The clean generator uses the same columns and ids shaped like `EP-100000`. I stored that export id in `episodes.source_episode_id` and used a separate numeric `episodes.id` for foreign keys. The unique constraint is case-sensitive text, so `EP-00003` and `ep-00003` are different until import decides otherwise. I did not add a robot allow-list: the export contains `arm-99`, and whether to keep it is an import rule.
 
-The provided `seed/episodes.csv` (190 data rows) is messy in ways the importer will have to classify: duplicate `episode_id`s (`EP-00011` with different quality, `EP-00030` and `EP-00074` repeated), a blank id, a missing robot, unknown robot `arm-99`, padded robot ids, mixed task-name case, several timestamp shapes, non-integer or empty durations, quality values outside `good` / `usable` / `bad`, a short row (`EP-90001`), and `ep-00003` differing only by case from `EP-00003`.
+`recorded_at` is `timestamptz`. Almost every seed timestamp has no offset; one row ends in `Z`. Import, which is not written yet, will treat naive values as UTC. `duration_seconds` is an integer because the clean generator writes integers. Roles, quality, and request status are PostgreSQL `CHECK` constraints fed by Python enums, not native enum types, so a new value is an ordinary migration.
+
+An episode has at most one assignment row (`assignments.episode_id` is unique). That is enough for "one active request" without keeping assignment history. Requests live in `dataset_requests` so the table name is not the SQL-looking word `requests`. `deadline` is a date.
+
+How duplicate CSV rows, blank fields, and `arm-99` are skipped is still an import decision.
 
 ## Left out
 
-This step is the process skeleton only: Compose, `/health`, request logging, and a page that shows the health result. No auth, schema, workflow, import, analytics, or operator UI yet.
+Auth, request endpoints, episode import, analytics, and the operator UI are not built. The schema and `/health` are.
 
 With two more days after the required features, I would add the optional background export job only if the required acceptance checks were already green.
 
