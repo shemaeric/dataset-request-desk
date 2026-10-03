@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.assignments import router as assignment_router
 from app.auth import router as auth_router
 from app.config import Settings, load_settings
 from app.db import create_session_factory, database_config_from
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(AccessLogMiddleware)
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(request_router, prefix="/api/v1")
+    app.include_router(assignment_router, prefix="/api/v1")
     app.include_router(episode_router, prefix="/api/v1")
 
     @app.get("/health")

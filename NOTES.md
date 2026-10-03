@@ -16,15 +16,15 @@ The CSV header is `episode_id,robot_id,task_name,recorded_at,duration_seconds,op
 
 `recorded_at` is `timestamptz`. Almost every seed timestamp has no offset; one row ends in `Z`. Import, which is not written yet, will treat naive values as UTC. `duration_seconds` is an integer because the clean generator writes integers. Roles, quality, and request status are PostgreSQL `CHECK` constraints fed by Python enums, not native enum types, so a new value is an ordinary migration.
 
-An episode has at most one assignment row (`assignments.episode_id` is unique). That is enough for "one active request" without keeping assignment history. Requests live in `dataset_requests` so the table name is not the SQL-looking word `requests`. `deadline` is a date.
+An episode has at most one assignment row (`assignments.episode_id` is unique). That row stays until an operator removes it. Accepting or rejecting a request does not free the episode. Assign and remove are allowed only while the request is `in_progress`, and only for `good` or `usable` episodes. Those writes lock the request row, then the episode row. Delivery locks the request and counts assignment rows in that same transaction before it changes status. Requests live in `dataset_requests` so the table name is not the SQL-looking word `requests`. `deadline` is a date.
 
 Import keeps the first valid row for an episode id. An identical repeat is skipped. A repeat with different fields is reported as a conflict and does not overwrite the stored row. `arm-99` is rejected because it is not one of the known robots; that list lives in the importer, not in a schema constraint. Blank lines are ignored. Other missing or unparseable fields are row errors, and the valid rows around them are still saved. Naive timestamps are UTC, and `14/08/2026` is day-first because the day is 14.
 
-Request status changes go through one table: staff move `submitted` or `rejected` to `in_progress`, and `in_progress` to `delivered`; the owning client moves `delivered` to `accepted` or `rejected`. The status column and the history row commit together. `delivered` counts rows already in `assignments` and does not yet decide which episodes may be assigned. A client who asks for another client's id gets the same 404 as a missing id.
+Request status changes go through one table: staff move `submitted` or `rejected` to `in_progress`, and `in_progress` to `delivered`; the owning client moves `delivered` to `accepted` or `rejected`. The status column and the history row commit together. `delivered` requires at least `episodes_requested` assignment rows. A client who asks for another client's id gets the same 404 as a missing id.
 
 ## Left out
 
-Assignment endpoints, analytics, and the operator UI are not built. Auth, the schema, requests, and episode import are.
+Analytics and the operator UI are not built. Auth, the schema, requests, episode import, and assignment are.
 
 With two more days after the required features, I would add the optional background export job only if the required acceptance checks were already green.
 
@@ -36,7 +36,7 @@ Nothing has failed in this step yet.
 
 Passwords are Argon2 hashes. Login failures use one message for an unknown email, a bad password, and an inactive user. The session cookie is HttpOnly and SameSite=Lax; the database stores only a hash of the token. A non-HttpOnly CSRF cookie must be echoed in `X-CSRF-Token` on later writes. `Secure` is off for local HTTP and on when `COOKIE_SECURE=true`. The role comes from the session user row, not from the login body.
 
-A client who asks for another client's request gets the same 404 as a missing id, on detail and on transition. Status changes go through the transition table, and the status write is the same transaction as the history row. CSRF still covers those POSTs. The hole I would still watch is `delivered`: it counts assignment rows, but the quality and single-active-request rules are not on that path until assignment exists.
+A client who asks for another client's request gets the same 404 as a missing id, on detail and on transition. Status changes go through the transition table, and the status write is the same transaction as the history row. CSRF still covers those POSTs. Assignment is staff-only. A `bad` episode is rejected, and the unique episode constraint stops a second request from taking it. Delivery counts those rows while the request row is locked.
 
 ## Scale
 

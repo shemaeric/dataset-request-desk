@@ -130,3 +130,11 @@ Import normalizes a row before it stores it: episode ids are uppercased, robots 
 The same episode id is inserted once, using the unique `source_episode_id` constraint. A later row with the same normalized fields is skipped. A later row with different fields is a conflict: the stored row stays as it was, and the response names the row. Nothing is updated in place. The JSON report has `created`, `skipped`, `conflicts`, `invalid`, and `errors` (row number, episode id, reason). `errors` includes the first 100 invalid or conflicting rows.
 
 `GET /api/v1/episodes` filters by `task_name` and `quality`, using the same task-name normalization. Results are ordered by `source_episode_id`. `limit` defaults to 50 and maxes at 100, with `offset`. The body is `items`, `total`, `limit`, and `offset`.
+
+## Assignments
+
+`POST /api/v1/requests/{id}/assignments` assigns one episode. The body is `{"episode_id": <numeric id>}`. `DELETE /api/v1/requests/{id}/assignments/{episode_id}` removes it. Operators and admins only.
+
+An episode can be assigned only when its quality is `good` or `usable`, and only while the request is `in_progress`. The assignment stays after `delivered`, `accepted`, or `rejected`. It is removed only by the delete call. The request row is locked, then the episode row, then the insert. `assignments.episode_id` is unique, so a second request cannot take the same episode. A repeat on the same request returns 409 `Episode is already assigned to this request`. A cross-request attempt returns 409 `Episode is already assigned to another request`.
+
+`in_progress` → `delivered` locks the request and counts current assignment rows in that transaction. Fewer than `episodes_requested` returns 409 `Not enough episodes assigned`.

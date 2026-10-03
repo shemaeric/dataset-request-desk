@@ -96,7 +96,6 @@ class RequestDetailOut(RequestOut):
 
 
 def assigned_episode_count(db: Session, request_id: int) -> int:
-    # Assignment writes these rows. Delivery only checks the count.
     counted = db.scalar(
         select(func.count()).select_from(Assignment).where(Assignment.request_id == request_id)
     )
