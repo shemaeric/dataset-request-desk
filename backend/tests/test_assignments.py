@@ -116,6 +116,7 @@ def test_assignment_rules_and_delivery(client: TestClient) -> None:
     usable = _episode(client, "usable")
     bad = _episode(client, "bad")
     assert _assign(client, first_id, good).status_code == 403
+    assert _remove(client, first_id, good).status_code == 403
 
     _login(client, "ops1@example.com")
     operator_id = client.get("/api/v1/auth/me").json()["id"]
@@ -165,5 +166,11 @@ def test_assignment_rules_and_delivery(client: TestClient) -> None:
     _login(client, "client-a@example.com")
     assert _move(client, second_id, "rejected").status_code == 200
     _login(client, "ops1@example.com")
+    assert client.get(f"/api/v1/requests/{second_id}").json()["assigned_episode_count"] == 1
     assert _assign(client, first_id, good).status_code == 409
     assert _remove(client, second_id, good).status_code == 409
+    assert _remove(client, first_id, good).status_code == 404
+
+    fresh = _episode(client, "good")
+    _login(client, "admin@example.com")
+    assert _assign(client, first_id, fresh).status_code == 201

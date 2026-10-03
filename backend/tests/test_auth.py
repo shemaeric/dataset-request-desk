@@ -8,11 +8,11 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.auth import require_roles
+from app.auth import hash_token, require_roles
 from app.config import Settings
 from app.logging import access_logger
 from app.main import create_app
-from app.models import User, UserRole
+from app.models import AuthSession, User, UserRole
 from app.seed import default_seed_path, seed_users
 from tests.test_schema_migration import _database_url, _drop_database, _recreate_database
 
@@ -73,9 +73,10 @@ def test_login_me_and_logout(client: TestClient) -> None:
     denied = client.get("/api/v1/auth/me")
     assert denied.status_code == 401
 
-    logged_in = _login(client, "client-a@example.com")
+    logged_in = _login(client, "Client-A@Example.com", _password("client-a@example.com"))
     assert logged_in.status_code == 200
     assert logged_in.json()["role"] == "client"
+    assert logged_in.json()["email"] == "client-a@example.com"
     assert "password" not in logged_in.json()
 
     session_cookie = next(
@@ -96,6 +97,31 @@ def test_login_me_and_logout(client: TestClient) -> None:
     assert me.status_code == 200
     assert me.json()["email"] == "client-a@example.com"
 
+    previous = client.cookies["desk_session"]
+    again = _login(client, "client-a@example.com")
+    assert again.status_code == 200
+    current = client.cookies["desk_session"]
+    assert current != previous
+    db = client.app.state.session_factory()
+    try:
+        stored = list(db.scalars(select(AuthSession.token_hash)))
+    finally:
+        db.close()
+    assert stored == [hash_token(current)]
+    client.cookies.set("desk_session", previous)
+    assert client.get("/api/v1/auth/me").status_code == 401
+    client.cookies.set("desk_session", current)
+    assert client.get("/api/v1/auth/me").status_code == 200
+
+    forged = client.post(
+        "/api/v1/requests",
+        json={"task_name": "pick cups", "episodes_requested": 1, "deadline": "2026-10-20"},
+        headers={"X-CSRF-Token": "not-the-token"},
+    )
+    assert forged.status_code == 403
+    assert forged.json()["detail"] == "CSRF check failed"
+    assert client.get("/api/v1/requests").json() == []
+
     missing_csrf = client.post("/api/v1/auth/logout")
     assert missing_csrf.status_code == 403
     assert client.get("/api/v1/auth/me").status_code == 200
@@ -110,12 +136,18 @@ def test_login_errors_are_generic(client: TestClient) -> None:
     wrong = _login(client, "client-a@example.com", "wrong-password")
     db = client.app.state.session_factory()
     try:
+        stored = db.scalar(select(User.password_hash).where(User.email == "client-a@example.com"))
+        _login(client, "ops2@example.com")
+        assert client.get("/api/v1/auth/me").status_code == 200
         db.execute(text("UPDATE users SET is_active = false WHERE email = 'ops2@example.com'"))
         db.commit()
-        stored = db.scalar(select(User.password_hash).where(User.email == "client-a@example.com"))
+        assert client.get("/api/v1/auth/me").status_code == 401
+        inactive = client.post(
+            "/api/v1/auth/login",
+            json={"email": "ops2@example.com", "password": _password("ops2@example.com")},
+        )
     finally:
         db.close()
-    inactive = _login(client, "ops2@example.com")
 
     assert unknown.status_code == wrong.status_code == inactive.status_code == 401
     assert unknown.json() == wrong.json() == inactive.json()
@@ -194,6 +226,9 @@ def test_logs_omit_password_and_session_token(
 
     assert response.status_code == 200
     logged = "\n".join(record.message for record in caplog.records)
+    payload = json.loads(caplog.records[-1].message)
+    assert payload["user_id"] == response.json()["id"]
+    assert payload["path"] == "/api/v1/auth/login"
     token = client.cookies["desk_session"]
     assert password not in logged
     assert token not in logged

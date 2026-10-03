@@ -128,6 +128,13 @@ def test_analytics_uses_the_utc_window_and_first_delivery(client: TestClient) ->
         ).status_code
         == 422
     )
+    assert client.get("/api/v1/analytics").status_code == 422
+    allowed = client.get(
+        "/api/v1/analytics",
+        params={"start_date": "2026-01-01", "end_date": "2027-01-02"},
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["median_seconds_to_delivery"] is None
 
     db = client.app.state.session_factory()
     try:
@@ -232,3 +239,9 @@ def test_analytics_uses_the_utc_window_and_first_delivery(client: TestClient) ->
     assert empty["top_tasks"] == []
     assert empty["median_seconds_to_delivery"] is None
     assert [row["count"] for row in empty["requests_by_status"]] == [0, 0, 0, 0, 0]
+
+    _login(client, "admin@example.com")
+    admin_body = client.get("/api/v1/analytics", params=params).json()
+    assert admin_body["median_seconds_to_delivery"] == 7200
+    assert admin_body["top_tasks"] == body["top_tasks"]
+    assert len(admin_body["top_tasks"]) == 5

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.config import Settings
+from app.episodes import MAX_UPLOAD_BYTES
 from app.main import create_app
 from app.models import Episode
 from app.seed import default_seed_path, seed_users
@@ -142,6 +143,28 @@ def test_import_reports_rows_and_does_not_overwrite(client: TestClient) -> None:
     assert nxt.json()["items"][0]["source_episode_id"] == "EP-2"
     usable = client.get("/api/v1/episodes", params={"quality": "usable"})
     assert [row["source_episode_id"] for row in usable.json()["items"]] == ["EP-6"]
+
+    _login(client, "admin@example.com")
+    before = client.get("/api/v1/episodes", params={"limit": 1}).json()["total"]
+    garbled = _upload(client, b"\xff\xfe")
+    assert garbled.status_code == 400
+    assert garbled.json()["detail"] == "CSV file must be UTF-8"
+    huge = _upload(client, b"x" * (MAX_UPLOAD_BYTES + 1))
+    assert huge.status_code == 400
+    assert huge.json()["detail"] == "CSV file is too large"
+    added = _upload(
+        client,
+        b"episode_id,robot_id,task_name,recorded_at,duration_seconds,operator_name,quality\n"
+        b"\n"
+        b"EP-90,arm-01,pick cup,2026-08-14T10:00:00,12,Diane,good\n"
+        b",,,,,,\n",
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["created"] == 1
+    assert added.json()["invalid"] == 0
+    assert added.json()["skipped"] == 0
+    assert client.get("/api/v1/episodes", params={"limit": 1}).json()["total"] == before + 1
+    assert _stored(client, "EP-1").duration_seconds == 30
 
 
 def test_seed_file_imports_twice(client: TestClient) -> None:

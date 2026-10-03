@@ -127,6 +127,7 @@ def test_client_creates_their_own_request(client: TestClient) -> None:
         _payload(task_name=" "),
         _payload(episodes_requested=0),
         _payload(deadline=(today - timedelta(days=1)).isoformat()),
+        _payload(deadline=(today + timedelta(days=365 * 5 + 1)).isoformat()),
     ):
         response = client.post("/api/v1/requests", json=payload, headers=_csrf(client))
         assert response.status_code == 422
@@ -158,14 +159,18 @@ def test_status_changes_follow_the_workflow(client: TestClient) -> None:
     created = _create(client)
     request_id = int(created["id"])
     owner_id = int(created["client_id"])
+    assert _move(client, request_id, "accepted").status_code == 409
     assert _move(client, request_id, "in_progress").status_code == 403
+    assert len(client.get(f"/api/v1/requests/{request_id}").json()["status_history"]) == 1
 
     _login(client, "ops1@example.com")
     operator_id = _user_id(client)
     skipped = _move(client, request_id, "delivered")
     assert skipped.status_code == 409
     assert skipped.json()["detail"] == "Invalid status transition"
-    assert client.get(f"/api/v1/requests/{request_id}").json()["status"] == "submitted"
+    stayed = client.get(f"/api/v1/requests/{request_id}").json()
+    assert stayed["status"] == "submitted"
+    assert len(stayed["status_history"]) == 1
 
     assert _move(client, request_id, "in_progress").status_code == 200
     short = _move(client, request_id, "delivered")
@@ -176,6 +181,7 @@ def test_status_changes_follow_the_workflow(client: TestClient) -> None:
     _assign(client, request_id, operator_id)
     assert _move(client, request_id, "delivered").status_code == 200
     assert _move(client, request_id, "accepted").status_code == 403
+    assert _move(client, request_id, "rejected").status_code == 403
 
     _login(client, "client-b@example.com")
     hidden = _move(client, request_id, "accepted")
@@ -194,7 +200,12 @@ def test_status_changes_follow_the_workflow(client: TestClient) -> None:
         ("in_progress", "delivered", operator_id),
         ("delivered", "accepted", owner_id),
     ]
+    assert accepted.json()["assigned_episode_count"] == 1
     assert all(row["changed_at"] for row in accepted.json()["status_history"])
+    again = _move(client, request_id, "rejected")
+    assert again.status_code == 409
+    assert again.json()["detail"] == "Invalid status transition"
+    assert len(client.get(f"/api/v1/requests/{request_id}").json()["status_history"]) == 4
 
 
 def test_client_can_reject_a_delivery(client: TestClient) -> None:
@@ -212,8 +223,9 @@ def test_client_can_reject_a_delivery(client: TestClient) -> None:
     assert rejected.status_code == 200
     assert rejected.json()["status_history"][-1]["actor_user_id"] == owner_id
 
-    _login(client, "ops1@example.com")
+    _login(client, "admin@example.com")
+    admin_id = _user_id(client)
     reworked = _move(client, request_id, "in_progress")
     assert reworked.status_code == 200
     assert reworked.json()["status_history"][-1]["from_status"] == "rejected"
-    assert reworked.json()["status_history"][-1]["actor_user_id"] == operator_id
+    assert reworked.json()["status_history"][-1]["actor_user_id"] == admin_id
