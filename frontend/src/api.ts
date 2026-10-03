@@ -1,10 +1,12 @@
 import {
   ApiError,
+  type Account,
   type DeskRequest,
   type EpisodePage,
   type EpisodeQuality,
   type RequestDetail,
   type RequestStatus,
+  type Role,
   type User,
 } from "./types";
 
@@ -36,6 +38,11 @@ const fieldLabel: Record<string, string> = {
   episodes_requested: "Episode count",
   deadline: "Deadline",
   notes: "Notes",
+  email: "Email",
+  name: "Name",
+  password: "Password",
+  role: "Role",
+  organisation: "Organisation",
 };
 
 function validationText(detail: unknown[]): string | null {
@@ -153,6 +160,33 @@ export function failureMessage(error: unknown): string {
     return "You cannot do that.";
   }
   return error.message;
+}
+
+export function listUsers(): Promise<Account[]> {
+  return request<Account[]>("/api/v1/users");
+}
+
+export function createUser(body: {
+  email: string;
+  name: string;
+  password: string;
+  role: Role;
+  organisation: string | null;
+}): Promise<Account> {
+  return request<Account>("/api/v1/users", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateUser(
+  userId: number,
+  body: { name?: string; role?: Role; organisation?: string | null; is_active?: boolean },
+): Promise<Account> {
+  return request<Account>(`/api/v1/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 export function listRequests(): Promise<DeskRequest[]> {

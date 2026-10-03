@@ -9,6 +9,7 @@ from app.episodes import router as episode_router
 from app.logging import AccessLogMiddleware, configure_logging
 from app.request_context import SessionMiddleware
 from app.requests import router as request_router
+from app.users import router as user_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(assignment_router, prefix="/api/v1")
     app.include_router(episode_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1")
+    app.include_router(user_router, prefix="/api/v1")
 
     @app.get("/health")
     def health() -> dict[str, str]:

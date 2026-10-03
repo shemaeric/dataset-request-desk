@@ -30,7 +30,10 @@ export function Frame({ children }: { children: ReactNode }) {
   return (
     <div className={user ? `desk desk-${user.role}` : "desk"}>
       <header className="desk-bar">
-        <Link to="/">Dataset Request Desk</Link>
+        <nav className="desk-nav">
+          <Link to="/">Dataset Request Desk</Link>
+          {user?.role === "admin" ? <Link to="/users">Users</Link> : null}
+        </nav>
         <div className="desk-bar-side">
           {user ? <span className="role-chip">{roleLabel[user.role]}</span> : null}
           <span className="user-name">{user?.name}</span>

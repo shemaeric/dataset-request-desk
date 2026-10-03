@@ -8,6 +8,10 @@ export type User = {
   organisation: string | null;
 };
 
+export type Account = User & {
+  is_active: boolean;
+};
+
 export type RequestStatus =
   | "submitted"
   | "in_progress"
